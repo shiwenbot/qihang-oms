@@ -4,6 +4,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Primary;
 import org.springframework.web.client.RestTemplate;
 
 @ComponentScan(basePackages={"cn.qihangerp"})
@@ -18,6 +19,7 @@ public class ApiApplication
     }
 
     @Bean
+    @Primary
     public RestTemplate restTemplate() {
         return new RestTemplate();
     }
