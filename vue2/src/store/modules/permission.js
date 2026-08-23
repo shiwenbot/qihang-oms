@@ -122,12 +122,11 @@ export function filterDynamicRoutes(routes) {
 }
 
 export const loadView = (view) => {
-  if (process.env.NODE_ENV === 'development') {
-    return (resolve) => require([`@/views/${view}`], resolve)
-  } else {
-    // 使用 import 实现生产环境的路由懒加载
-    return () => import(`@/views/${view}`)
-  }
+  // 统一使用 require context：webpack 会为 @/views 下所有页面生成
+  // 异步 context 映射。此前生产分支的 import(`@/views/${view}`) 在
+  // 本项目 webpack5 管线下生成空 context，导致所有懒加载页面
+  // MODULE_NOT_FOUND、点击菜单无法跳转。
+  return (resolve) => require([`@/views/${view}`], resolve)
 }
 
 export default permission
