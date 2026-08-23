@@ -130,13 +130,11 @@ export default {
       this.lineChartData.date=[]
       this.lineChartData.salesVolume =[]
       this.lineChartData.salesOrder =[]
-      if(resp.data.list){
-        resp.data.list.forEach(x=>{
-          this.lineChartData.date.push(x.date)
-          this.lineChartData.salesVolume.push(x.amount)
-          this.lineChartData.salesOrder.push(x.count)
-        })
-      }
+      resp.data.forEach(x=>{
+        this.lineChartData.date.push(x.date)
+        this.lineChartData.salesVolume.push(x.amount)
+        this.lineChartData.salesOrder.push(x.count)
+      })
 
     })
   },
