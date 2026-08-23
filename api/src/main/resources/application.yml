@@ -1,4 +1,5 @@
 server:
+  address: 127.0.0.1
   port: 8086
 
 
@@ -54,6 +55,12 @@ spring:
 qihangerp:
   # 验证码类型 math 数字计算 char 字符验证
   captchaType: math
+market-intel:
+  sidecar-url: ${MARKET_INTEL_SIDECAR_URL:http://127.0.0.1:18080}
+  # 与 sidecar TOKEN 相同；账号凭据由 sidecar 使用 Windows DPAPI 存在本机用户目录
+  shared-token: ${MARKET_INTEL_TOKEN:}
+  # Independent data-encryption key; packaged launcher loads it from a DPAPI-protected local file.
+  data-key: ${MARKET_INTEL_DATA_KEY:}
 user:
   password:
     maxRetryCount: 5 #密码最大错误次数
