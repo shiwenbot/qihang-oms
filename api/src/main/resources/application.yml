@@ -13,6 +13,11 @@ spring:
     basename: i18n/messages
   profiles:
     active: dev
+  servlet:
+    multipart:
+      # AI生图参考图上传（单张上限10MB、最多4张）
+      max-file-size: 15MB
+      max-request-size: 60MB
   application:
     name: qihang-oms
   data:
