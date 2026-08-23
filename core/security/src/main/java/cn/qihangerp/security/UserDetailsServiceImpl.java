@@ -89,13 +89,13 @@ public class UserDetailsServiceImpl implements UserDetailsService
             //如果是管理员，那么验证密码
             passwordService.validate(userVo);
         }
-        return createLoginUser(userVo);
+        return createLoginUser(userVo, user.getUserType());
     }
 
-    public UserDetails createLoginUser(UserVo userVo)
+    public UserDetails createLoginUser(UserVo userVo, String userType)
     {
         Set<String> perms = new HashSet<String>();
-        perms.add("*:*:*");
+        if ("00".equals(userType)) perms.add("*:*:*");
         return new LoginUser(userVo.getUserId(), userVo.getDeptId(),userVo.getUserIdentity(), userVo, perms);
 //        return new LoginUser(user.getUserId(), user.getDeptId(), user, permissionService.getMenuPermission(user));
 //        return new LoginUser(user.getUserId(), user.getDeptId(), user, perms);

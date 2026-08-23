@@ -17,6 +17,7 @@ import cn.qihangerp.security.UserPasswordNotMatchException;
 import cn.qihangerp.domain.SysUser;
 import cn.qihangerp.security.utils.IpUtils;
 import cn.qihangerp.service.ISysUserService;
+import cn.qihangerp.service.SysPermissionService;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -48,6 +49,8 @@ public class SysLoginService
 
     @Autowired
     private SysConfigService configService;
+    @Autowired
+    private SysPermissionService permissionService;
 
     /**
      * 登录验证
@@ -92,6 +95,8 @@ public class SysLoginService
         }
 //        AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success")));
         LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+        SysUser authenticatedUser = userService.selectUserById(loginUser.getUserId());
+        loginUser.setPermissions(permissionService.getMenuPermission(authenticatedUser));
         recordLoginInfo(loginUser.getUserId());
         // 生成token
         return tokenService.createToken(loginUser);
