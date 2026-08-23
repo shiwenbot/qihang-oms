@@ -50,11 +50,15 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
         if (request.getRequestURI().equals("/login")
                 || request.getRequestURI().contains("/login")
                 || request.getRequestURI().contains("/captchaImage")
+                || request.getRequestURI().equals("/")
+                || request.getRequestURI().equals("/index.html")
+                || request.getRequestURI().startsWith("/static/")
+                || request.getRequestURI().startsWith("/profile/")
+                || request.getRequestURI().equals("/favicon.ico")
                 || request.getRequestURI().equals("/order/get_detail")
                 || request.getRequestURI().equals("/refund/get_detail")
                 || request.getRequestURI().contains("/system/config")
         ) {
-            // 登录页面，放行 || request.getRequestURI().equals("/order/get_detail")
             chain.doFilter(request, response);
             return;
         }

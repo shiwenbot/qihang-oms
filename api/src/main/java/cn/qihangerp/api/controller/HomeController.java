@@ -15,7 +15,8 @@ public class HomeController {
     private RedisTemplate<String,String> redisTemplate;
     @GetMapping("/")
     public String home(){
-        return "{'code':0,'msg':'请通过api访问'}";
+        // 嵌入式前端：根路径直接跳转到登录页入口
+        return "<script>location.href='/index.html'</script>";
     }
     @GetMapping(value = "/echo-rest")
     public String rest() {

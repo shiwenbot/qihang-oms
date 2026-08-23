@@ -60,6 +60,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorizeHttpRequests -> authorizeHttpRequests
                         // 允许所有OPTIONS请求
                         .requestMatchers("/home").permitAll()
+                        // 嵌入式前端静态资源放行（单jar部署）
+                        .requestMatchers(HttpMethod.GET, "/").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/index.html").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/static/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/profile/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/favicon.ico").permitAll()
                         .requestMatchers(HttpMethod.GET, "/order/get_detail").permitAll()
                         .requestMatchers(HttpMethod.GET, "/refund/get_detail").permitAll()
