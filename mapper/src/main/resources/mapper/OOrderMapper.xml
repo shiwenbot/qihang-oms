@@ -85,26 +85,28 @@
         where order_id = #{orderId}
     </select>
     <select id="salesDaily" resultType="cn.qihangerp.model.vo.SalesDailyVo">
-        SELECT
-            DATE(order_time) AS date,
-            COUNT(*) AS count,
-            SUM(payment) AS amount
-
-        FROM
-            o_order
-        WHERE 1=1
-        <if test="merchantId!=null">
-            and merchant_id = #{merchantId}
-        </if>
-        <if test="shopId!=null">
-            and shop_id = #{shopId}
-        </if>
-        GROUP BY
-            date
-        ORDER BY
-            date DESC
-
+        SELECT * FROM (
+            SELECT
+                DATE(order_time) AS date,
+                COUNT(*) AS count,
+                SUM(amount) AS amount
+            FROM
+                o_order
+            WHERE 1=1
+            <if test="merchantId!=null">
+                and merchant_id = #{merchantId}
+            </if>
+            <if test="shopId!=null">
+                and shop_id = #{shopId}
+            </if>
+            GROUP BY
+                date
+            ORDER BY
+                date DESC
             LIMIT 30
+        ) t
+        ORDER BY
+            t.date ASC
     </select>
 
     <select id="waitOrderReport" resultType="cn.qihangerp.model.vo.WaitShipReportVo">
@@ -123,7 +125,7 @@
         SELECT
 
             COUNT(*) AS count,
-            SUM(amount) AS amount
+            IFNULL(SUM(amount),0) AS amount
 
         FROM
             o_order
