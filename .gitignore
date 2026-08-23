@@ -37,3 +37,12 @@ build/
 ### Mac OS ###
 .DS_Store
 api/src/main/resources/static/
+
+# 市场情报采集账号凭据
+intel-sidecar/.env
+intel-sidecar/.venv/
+intel-sidecar/__pycache__/
+intel-sidecar/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+intel-sidecar/vendor/
