@@ -61,7 +61,32 @@ export default {
       this.chart = echarts.init(this.$el, 'macarons')
       this.setOptions(this.chartData)
     },
-    setOptions({date,salesVolume,salesOrder } = {}) {
+    setOptions({date, salesVolume, salesOrder, heatScore, seriesName } = {}) {
+      const heatMode = Array.isArray(heatScore)
+      const series = heatMode ? [{
+        name: seriesName || '热度',
+        smooth: true,
+        type: 'line',
+        showSymbol: true,
+        itemStyle: { color: '#d94841' },
+        lineStyle: { color: '#d94841', width: 2 },
+        areaStyle: { color: 'rgba(217,72,65,.08)' },
+        data: heatScore,
+        animationDuration: 900
+      }] : [
+        {
+          name: '销售额', itemStyle: {
+            normal: { color: '#FF005A', lineStyle: { color: '#FF005A', width: 2 } }
+          },
+          smooth: true, type: 'line', data: salesVolume,
+          animationDuration: 2800, animationEasing: 'cubicInOut'
+        },
+        {
+          name: '订单统计', smooth: true, type: 'line',
+          itemStyle: { normal: { color: '#3888fa', lineStyle: { color: '#3888fa', width: 2 }, areaStyle: { color: '#f3f8ff' } } },
+          data: salesOrder, animationDuration: 2800, animationEasing: 'quadraticOut'
+        }
+      ]
       this.chart.setOption({
         xAxis: {
           // data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
@@ -90,46 +115,8 @@ export default {
             show: false
           }
         },
-        legend: {
-          data: [ '销售额','订单统计']
-        },
-        series: [
-          {
-          name: '销售额', itemStyle: {
-            normal: {
-              color: '#FF005A',
-              lineStyle: {
-                color: '#FF005A',
-                width: 2
-              }
-            }
-          },
-          smooth: true,
-          type: 'line',
-          data: salesVolume,
-          animationDuration: 2800,
-          animationEasing: 'cubicInOut'
-        },
-        {
-          name: '订单统计',
-          smooth: true,
-          type: 'line',
-          itemStyle: {
-            normal: {
-              color: '#3888fa',
-              lineStyle: {
-                color: '#3888fa',
-                width: 2
-              },
-              areaStyle: {
-                color: '#f3f8ff'
-              }
-            }
-          },
-          data: salesOrder,
-          animationDuration: 2800,
-          animationEasing: 'quadraticOut'
-        }]
+        legend: { data: heatMode ? [seriesName || '热度'] : ['销售额', '订单统计'] },
+        series
       })
     }
   }
