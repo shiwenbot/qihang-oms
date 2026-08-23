@@ -35,4 +35,5 @@ build/
 .vscode/
 
 ### Mac OS ###
-.DS_Storeapi/src/main/resources/static/
+.DS_Store
+api/src/main/resources/static/
