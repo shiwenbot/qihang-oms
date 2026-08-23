@@ -54,6 +54,7 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
                 || request.getRequestURI().equals("/index.html")
                 || request.getRequestURI().startsWith("/static/")
                 || request.getRequestURI().startsWith("/profile/")
+                || request.getRequestURI().startsWith("/ai-images/")
                 || request.getRequestURI().equals("/favicon.ico")
                 || request.getRequestURI().equals("/order/get_detail")
                 || request.getRequestURI().equals("/refund/get_detail")

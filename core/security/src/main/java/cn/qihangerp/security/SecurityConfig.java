@@ -69,6 +69,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/order/get_detail").permitAll()
                         .requestMatchers(HttpMethod.GET, "/refund/get_detail").permitAll()
                         .requestMatchers(HttpMethod.GET, "/images/preview/**").permitAll()
+                        // AI生图结果图（本地兜底存储，七牛未配置时）
+                        .requestMatchers(HttpMethod.GET, "/ai-images/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/system/config/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/captchaImage").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/sys-api/captchaImage").permitAll()
