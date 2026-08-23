@@ -187,7 +187,7 @@ Router.prototype.replace = function push(location) {
 }
 
 export default new Router({
-  mode: 'history', // 去掉url中的#
+  mode: 'hash', // hash模式：嵌入式单jar部署下刷新页面不404
   scrollBehavior: () => ({ y: 0 }),
   routes: constantRoutes
 })
