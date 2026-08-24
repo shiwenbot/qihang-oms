@@ -26,7 +26,7 @@ foreach ($line in $lines) {
 }
 
 $output.Add('')
-$seedFile = Join-Path $PSScriptRoot 'ensure-login-config.sql'
+$seedFile = Join-Path $PSScriptRoot '..\..\docs\sql\ensure-login-config.sql'
 $output.AddRange([string[]][IO.File]::ReadAllLines($seedFile, [Text.Encoding]::UTF8))
 $output.Add('SET FOREIGN_KEY_CHECKS = 1;')
 
