@@ -2,13 +2,13 @@
 -- AI生图功能 增量脚本
 -- 依赖: qihang-oms 主库
 -- 说明: menu_id 使用 8000 段，如与现场冲突请自行调整
+-- 幂等: 发版包每次启动都会执行本目录全部 SQL，可重复执行；不清数据、不重复插菜单
 -- ============================================================
 
 -- ----------------------------
 -- 生图任务表
 -- ----------------------------
-DROP TABLE IF EXISTS `ai_image_task`;
-CREATE TABLE `ai_image_task` (
+CREATE TABLE IF NOT EXISTS `ai_image_task` (
   `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '任务ID',
   `prompt`       VARCHAR(2000) NOT NULL               COMMENT '提示词',
   `size`         VARCHAR(20)  NOT NULL DEFAULT '1024x1024' COMMENT '尺寸 宽x高',
@@ -30,12 +30,16 @@ CREATE TABLE `ai_image_task` (
 -- 菜单: 顶级菜单「AI生图」(menu_type=C 顶级单页, 侧边栏直接显示)
 -- ----------------------------
 INSERT INTO `sys_menu` (`menu_id`, `menu_name`, `parent_id`, `order_num`, `path`, `component`, `query`, `is_frame`, `is_cache`, `menu_type`, `visible`, `status`, `perms`, `icon`, `create_by`, `create_time`, `remark`)
-VALUES (8000, 'AI生图', 0, 90, 'aiImage', 'ai/image', '', 1, 0, 'C', '0', '0', 'ai:image:list', 'aiImage', 'admin', NOW(), 'AI生图菜单');
+SELECT 8000, 'AI生图', 0, 90, 'aiImage', 'ai/image', '', 1, 0, 'C', '0', '0', 'ai:image:list', 'aiImage', 'admin', NOW(), 'AI生图菜单'
+WHERE NOT EXISTS (SELECT 1 FROM `sys_menu` WHERE `menu_id` = 8000);
 
 -- 按钮权限
 INSERT INTO `sys_menu` (`menu_id`, `menu_name`, `parent_id`, `order_num`, `path`, `component`, `query`, `is_frame`, `is_cache`, `menu_type`, `visible`, `status`, `perms`, `icon`, `create_by`, `create_time`, `remark`)
-VALUES (8001, 'AI生图生成', 8000, 1, '', '', '', 1, 0, 'F', '0', '0', 'ai:image:generate', '#', 'admin', NOW(), '');
+SELECT 8001, 'AI生图生成', 8000, 1, '', '', '', 1, 0, 'F', '0', '0', 'ai:image:generate', '#', 'admin', NOW(), ''
+WHERE NOT EXISTS (SELECT 1 FROM `sys_menu` WHERE `menu_id` = 8001);
 
 -- 授权: 超级管理员(role_id=1)默认可见全部菜单, 此处给普通角色(role_id=2)示例授权, 按需调整
-INSERT INTO `sys_role_menu` (`role_id`, `menu_id`) VALUES (2, 8000);
-INSERT INTO `sys_role_menu` (`role_id`, `menu_id`) VALUES (2, 8001);
+INSERT INTO `sys_role_menu` (`role_id`, `menu_id`)
+SELECT 2, 8000 WHERE NOT EXISTS (SELECT 1 FROM `sys_role_menu` WHERE `role_id` = 2 AND `menu_id` = 8000);
+INSERT INTO `sys_role_menu` (`role_id`, `menu_id`)
+SELECT 2, 8001 WHERE NOT EXISTS (SELECT 1 FROM `sys_role_menu` WHERE `role_id` = 2 AND `menu_id` = 8001);
