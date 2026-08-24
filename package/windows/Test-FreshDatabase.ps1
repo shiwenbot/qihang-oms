@@ -11,7 +11,7 @@ $process = $null
 [IO.Directory]::CreateDirectory($testRoot) | Out-Null
 
 function Assert-Scalar([string]$query, [string]$expected, [string]$label) {
-    $actual = (& $client '-h127.0.0.1' '-P13306' '-uroot' '-N' '-B' '-e' $query | Select-Object -First 1)
+    $actual = (& $client '-h127.0.0.1' '-P13306' '-uroot' '-N' '-B' 'qihang-oms' '-e' $query | Select-Object -First 1)
     if ("$actual" -ne "$expected") {
         throw ("assert failed [$label]: expected '$expected', got '$actual'")
     }
