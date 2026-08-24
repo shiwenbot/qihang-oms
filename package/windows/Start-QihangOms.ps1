@@ -143,6 +143,7 @@ if ($needsBaseSchema) {
     if ($rootArgs.Count -eq 1) {
         & $mysqlClient @rootArgs '-e' "ALTER USER 'root'@'localhost' IDENTIFIED BY 'Andy_123'; FLUSH PRIVILEGES;"
         if ($LASTEXITCODE -ne 0) { throw 'database local password setup failed' }
+        $rootArgs = @('-uroot','-pAndy_123')
     }
 }
 # Full sync: every *.sql in the sql folder except base-schema.sql (fresh-install
