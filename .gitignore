@@ -46,3 +46,6 @@ intel-sidecar/.pytest_cache/
 **/__pycache__/
 *.py[cod]
 intel-sidecar/vendor/
+
+# 一键打包产物
+package/out/
