@@ -37,6 +37,10 @@ function Step([string]$message) { Write-Host ('[' + $buildTime.ToString('HH:mm:s
 function Require-Tool([string]$name) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { throw "missing tool: $name (install it and make sure it is on PATH)" }
 }
+function Clear-Directory([string]$dir) {
+    if (-not (Test-Path -LiteralPath $dir)) { return }
+    Get-ChildItem -LiteralPath $dir -Force | Remove-Item -Recurse -Force
+}
 
 # ---------- 1) git identity ----------
 Step '1/8 git revision'
@@ -112,18 +116,25 @@ Copy-Item -LiteralPath $jar.FullName -Destination (Join-Path $staging 'app\oms.j
 # scripts always from the repo, not the template
 $pkgStaging = Join-Path $staging 'package\windows'
 [IO.Directory]::CreateDirectory($pkgStaging) | Out-Null
-Remove-Item -LiteralPath (Join-Path $pkgStaging '*') -Recurse -Force -ErrorAction SilentlyContinue
+Clear-Directory $pkgStaging
 Copy-Item -Path (Join-Path $repo 'package\windows\*') -Destination $pkgStaging -Recurse -Force
 # sql set: generated base schema + every docs\sql\*.sql (new features need no build changes)
 $sqlStaging = Join-Path $staging 'sql'
 [IO.Directory]::CreateDirectory($sqlStaging) | Out-Null
-Remove-Item -LiteralPath (Join-Path $sqlStaging '*') -Recurse -Force -ErrorAction SilentlyContinue
+Clear-Directory $sqlStaging
 & (Join-Path $PSScriptRoot 'New-SanitizedSchema.ps1') -Source (Join-Path $repo 'docs\qihang-oms.sql') -Destination (Join-Path $sqlStaging 'base-schema.sql')
 Copy-Item -Path (Join-Path $repo 'docs\sql\*.sql') -Destination $sqlStaging -Force
+$expectedSql = @('base-schema.sql') + @((Get-ChildItem -LiteralPath (Join-Path $repo 'docs\sql') -Filter '*.sql').Name)
+$actualSql = @((Get-ChildItem -LiteralPath $sqlStaging -Filter '*.sql').Name)
+$expectedSql = @($expectedSql | Sort-Object)
+$actualSql = @($actualSql | Sort-Object)
+if (($expectedSql -join '|') -ne ($actualSql -join '|')) {
+    throw ('sql set mismatch. expected: ' + ($expectedSql -join ', ') + '; actual: ' + ($actualSql -join ', '))
+}
 # intel sidecar sources from the repo (no venv, no secrets)
 $sidecarStaging = Join-Path $staging 'intel-sidecar'
 [IO.Directory]::CreateDirectory($sidecarStaging) | Out-Null
-Remove-Item -LiteralPath (Join-Path $sidecarStaging '*') -Recurse -Force -ErrorAction SilentlyContinue
+Clear-Directory $sidecarStaging
 & robocopy (Join-Path $repo 'intel-sidecar') $sidecarStaging /E /XD .venv __pycache__ vendor .pytest_cache /XF .env /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "intel-sidecar copy failed (robocopy exit $LASTEXITCODE)" }
 $global:LASTEXITCODE = 0
