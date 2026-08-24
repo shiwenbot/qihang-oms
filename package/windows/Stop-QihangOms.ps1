@@ -15,15 +15,19 @@ foreach ($entry in $owned) {
         continue
     }
     if ($expected.EndsWith('mysqld.exe',[StringComparison]::OrdinalIgnoreCase)) {
+        $mysqlPort = 3306
+        if ($entry.port) { $mysqlPort = [int]$entry.port }
         $previousPreference = $ErrorActionPreference
         $ErrorActionPreference = 'SilentlyContinue'
-        & (Join-Path $appHome 'runtime\mysql\bin\mysqladmin.exe') '-uroot' '-pAndy_123' 'shutdown' 2>$null
+        & (Join-Path $appHome 'runtime\mysql\bin\mysqladmin.exe') '-h127.0.0.1' "-P$mysqlPort" '-uroot' '-pAndy_123' 'shutdown' 2>$null
         $ErrorActionPreference = $previousPreference
         Wait-Process -Id $entry.pid -Timeout 15 -ErrorAction SilentlyContinue
     } elseif ($expected.EndsWith('redis-server.exe',[StringComparison]::OrdinalIgnoreCase)) {
+        $redisPort = 6379
+        if ($entry.port) { $redisPort = [int]$entry.port }
         $previousPreference = $ErrorActionPreference
         $ErrorActionPreference = 'SilentlyContinue'
-        & (Join-Path $appHome 'runtime\redis\redis-cli.exe') '-h' '127.0.0.1' '-p' '6379' 'shutdown' 'nosave' 2>$null
+        & (Join-Path $appHome 'runtime\redis\redis-cli.exe') '-h' '127.0.0.1' '-p' "$redisPort" 'shutdown' 'nosave' 2>$null
         $ErrorActionPreference = $previousPreference
         Wait-Process -Id $entry.pid -Timeout 10 -ErrorAction SilentlyContinue
     } else {

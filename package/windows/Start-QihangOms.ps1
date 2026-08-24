@@ -7,6 +7,7 @@ $stateFile = Join-Path $config 'processes.json'
 $tokenFile = Join-Path $config 'market-intel-token.txt'
 $dataKeyFile = Join-Path $config 'market-intel-data-key.bin'
 $started = [Collections.Generic.List[object]]::new()
+$reservedPorts = [Collections.Generic.HashSet[int]]::new()
 
 Add-Type -AssemblyName System.Security
 
@@ -23,9 +24,30 @@ function ConvertTo-Hex([byte[]]$bytes) {
 function Require-File([string]$path) {
     if (-not [IO.File]::Exists($path)) { throw "incomplete package: $path" }
 }
-function Assert-PortFree([int]$port) {
-    $listener = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($listener) { throw "port $port is already used by process $($listener.OwningProcess)" }
+function Test-PortFree([int]$port) {
+    if ($reservedPorts.Contains($port)) { return $false }
+    $listener = $null
+    try {
+        $listener = New-Object System.Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, $port)
+        $listener.Start()
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($listener) { $listener.Stop() }
+    }
+}
+function Find-FreePort([string]$name, [int]$preferred, [int]$span = 30) {
+    for ($port = $preferred; $port -lt ($preferred + $span); $port++) {
+        if (Test-PortFree $port) {
+            [void]$reservedPorts.Add($port)
+            if ($port -ne $preferred) {
+                Write-Host ("  $name port $preferred busy, using $port")
+            }
+            return $port
+        }
+    }
+    throw "no free port for $name in $preferred..$($preferred + $span - 1)"
 }
 function Save-ProcessState {
     [IO.File]::WriteAllText($stateFile, ($script:started | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
@@ -45,16 +67,14 @@ function Wait-ForPort([int]$port, [int]$seconds, [int]$expectedPid, [string]$exp
     }
     throw "service port $port startup timed out"
 }
-function Start-OwnedProcess([string]$name, [string]$file, [string[]]$arguments) {
+function Start-OwnedProcess([string]$name, [string]$file, [string[]]$arguments, [int]$port) {
     $process = Start-Process -FilePath $file -ArgumentList $arguments -WorkingDirectory $appHome -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $logs "$name.out.log") -RedirectStandardError (Join-Path $logs "$name.err.log")
-    $entry = @{ pid=$process.Id; executable=[IO.Path]::GetFullPath($file); requireMarker=($name -in @('sidecar','oms')) }
+    $entry = @{ pid=$process.Id; executable=[IO.Path]::GetFullPath($file); requireMarker=($name -in @('sidecar','oms')); name=$name; port=$port }
     $script:started.Add($entry)
     Save-ProcessState
     return $entry
 }
-
-
 
 [IO.Directory]::CreateDirectory($config) | Out-Null
 [IO.Directory]::CreateDirectory($logs) | Out-Null
@@ -68,22 +88,32 @@ if ($appHome -match '[^\x00-\x7F]') {
     throw "Please unpack to an ASCII path such as D:\QihangOMS. MySQL cannot start from: $appHome"
 }
 
-
-
 if ([IO.File]::Exists($stateFile)) {
     $entries = Get-Content -Raw $stateFile | ConvertFrom-Json
     $allOwned = $entries.Count -gt 0
+    $runningOmsPort = 8086
     foreach ($entry in $entries) {
         $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($entry.pid)" -ErrorAction SilentlyContinue
         $expected = [IO.Path]::GetFullPath([string]($entry.executable))
         if (-not $process -or -not $process.ExecutablePath -or
             -not [IO.Path]::GetFullPath($process.ExecutablePath).Equals($expected, [StringComparison]::OrdinalIgnoreCase) -or
             ([bool]($entry.requireMarker) -and $process.CommandLine -notlike "*$appHome*")) { $allOwned = $false; break }
+        if ($entry.name -eq 'oms' -and $entry.port) { $runningOmsPort = [int]$entry.port }
     }
-    if ($allOwned) { Start-Process 'http://127.0.0.1:8086'; Write-Host 'Qihang OMS is already running.'; exit 0 }
+    if ($allOwned) {
+        $runningUrl = "http://127.0.0.1:$runningOmsPort"
+        Start-Process $runningUrl
+        Write-Host "Qihang OMS is already running at $runningUrl"
+        exit 0
+    }
     [IO.File]::Delete($stateFile)
 }
-3306,6379,18080,8086 | ForEach-Object { Assert-PortFree $_ }
+
+$mysqlPort = Find-FreePort 'mysql' 3306
+$redisPort = Find-FreePort 'redis' 6379
+$sidecarPort = Find-FreePort 'sidecar' 18080
+$omsPort = Find-FreePort 'oms' 8086
+$omsUrl = "http://127.0.0.1:$omsPort"
 
 if (-not [IO.File]::Exists($tokenFile)) {
     $bytes = New-RandomBytes 32
@@ -93,6 +123,8 @@ $token = [IO.File]::ReadAllText($tokenFile, [Text.Encoding]::ASCII).Trim()
 if ($token.Length -lt 32) { throw 'local communication token is invalid' }
 $env:MARKET_INTEL_TOKEN = $token
 $env:TOKEN = $token
+$env:MARKET_INTEL_SIDECAR_URL = "http://127.0.0.1:$sidecarPort"
+$env:OMS_RESULT_BASE = "$omsUrl/api/internal/intel/jobs"
 if (-not [IO.File]::Exists($dataKeyFile)) {
     $dataKeyBytes = New-RandomBytes 32
     $protectedKey = [Security.Cryptography.ProtectedData]::Protect($dataKeyBytes, [Text.Encoding]::UTF8.GetBytes('QihangOMS.MarketIntel.DataKey.v1'), [Security.Cryptography.DataProtectionScope]::CurrentUser)
@@ -114,15 +146,16 @@ if ($freshData) {
 }
 
 try {
-$mysqlEntry = Start-OwnedProcess 'mysql' $mysql @('--no-defaults',"--basedir=$runtime\mysql","--datadir=$data",'--bind-address=127.0.0.1','--port=3306','--skip-log-bin','--mysqlx=0','--character-set-server=utf8mb4')
-$mysqlEntry.pid = Wait-ForPort 3306 45 $mysqlEntry.pid $mysqlEntry.executable
+$mysqlEntry = Start-OwnedProcess 'mysql' $mysql @('--no-defaults',"--basedir=$runtime\mysql","--datadir=$data",'--bind-address=127.0.0.1',"--port=$mysqlPort",'--skip-log-bin','--mysqlx=0','--character-set-server=utf8mb4') $mysqlPort
+$mysqlEntry.pid = Wait-ForPort $mysqlPort 45 $mysqlEntry.pid $mysqlEntry.executable
 Save-ProcessState
-$rootArgs = @('-uroot')
+$mysqlConnect = @('-h127.0.0.1', "-P$mysqlPort")
+$rootArgs = $mysqlConnect + @('-uroot')
 try {
     $ErrorActionPreference = 'Continue'
     & $mysqlClient @rootArgs '-e' 'SELECT 1' 2>$null
     if ($LASTEXITCODE -ne 0) {
-        $rootArgs = @('-uroot','-pAndy_123')
+        $rootArgs = $mysqlConnect + @('-uroot','-pAndy_123')
         & $mysqlClient @rootArgs '-e' 'SELECT 1' 2>$null
         if ($LASTEXITCODE -ne 0) { throw 'database authentication failed' }
     }
@@ -140,10 +173,10 @@ if ($needsBaseSchema) {
         & $mysqlClient @rootArgs '--default-character-set=utf8mb4' 'qihang-oms' '-e' "source $schemaPath"
         if ($LASTEXITCODE -ne 0) { throw "schema import failed: $schema" }
     }
-    if ($rootArgs.Count -eq 1) {
+    if ($rootArgs -notcontains '-pAndy_123') {
         & $mysqlClient @rootArgs '-e' "ALTER USER 'root'@'localhost' IDENTIFIED BY 'Andy_123'; FLUSH PRIVILEGES;"
         if ($LASTEXITCODE -ne 0) { throw 'database local password setup failed' }
-        $rootArgs = @('-uroot','-pAndy_123')
+        $rootArgs = $mysqlConnect + @('-uroot','-pAndy_123')
     }
 }
 # Full sync: every *.sql in the sql folder except base-schema.sql (fresh-install
@@ -158,19 +191,26 @@ foreach ($sqlFile in $sqlFiles) {
     if ($LASTEXITCODE -ne 0) { throw ("sql sync failed: " + $sqlFile.Name) }
 }
 
-
-
-$redisEntry = Start-OwnedProcess 'redis' $redis @('--bind','127.0.0.1','--protected-mode','yes','--port','6379','--save','""','--appendonly','no')
-$redisEntry.pid = Wait-ForPort 6379 20 $redisEntry.pid $redisEntry.executable
+$redisEntry = Start-OwnedProcess 'redis' $redis @('--bind','127.0.0.1','--protected-mode','yes','--port',"$redisPort",'--save','""','--appendonly','no') $redisPort
+$redisEntry.pid = Wait-ForPort $redisPort 20 $redisEntry.pid $redisEntry.executable
 Save-ProcessState
-$sidecarEntry = Start-OwnedProcess 'sidecar' $python @('-m','uvicorn','app:app','--app-dir',(Join-Path $appHome 'intel-sidecar'),'--host','127.0.0.1','--port','18080')
-$sidecarEntry.pid = Wait-ForPort 18080 30 $sidecarEntry.pid $sidecarEntry.executable
+$sidecarEntry = Start-OwnedProcess 'sidecar' $python @('-m','uvicorn','app:app','--app-dir',(Join-Path $appHome 'intel-sidecar'),'--host','127.0.0.1','--port',"$sidecarPort") $sidecarPort
+$sidecarEntry.pid = Wait-ForPort $sidecarPort 30 $sidecarEntry.pid $sidecarEntry.executable
 Save-ProcessState
-$omsEntry = Start-OwnedProcess 'oms' $java @('-Dfile.encoding=utf-8','-jar',(Join-Path $appHome 'app\oms.jar'),'--server.address=127.0.0.1')
-$omsEntry.pid = Wait-ForPort 8086 90 $omsEntry.pid $omsEntry.executable
+$jdbc = "jdbc:mysql://127.0.0.1:$mysqlPort/qihang-oms?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8"
+$omsEntry = Start-OwnedProcess 'oms' $java @(
+    '-Dfile.encoding=utf-8',
+    '-jar', (Join-Path $appHome 'app\oms.jar'),
+    '--server.address=127.0.0.1',
+    "--server.port=$omsPort",
+    "--spring.datasource.url=$jdbc",
+    "--spring.data.redis.port=$redisPort",
+    "--market-intel.sidecar-url=http://127.0.0.1:$sidecarPort"
+) $omsPort
+$omsEntry.pid = Wait-ForPort $omsPort 90 $omsEntry.pid $omsEntry.executable
 Save-ProcessState
-Start-Process 'http://127.0.0.1:8086'
-Write-Host 'Started: http://127.0.0.1:8086  username: admin  password: admin'
+Start-Process $omsUrl
+Write-Host "Started: $omsUrl  username: admin  password: admin"
 } catch {
     Write-Error $_
     & (Join-Path $appHome 'package\windows\Stop-QihangOms.ps1')
