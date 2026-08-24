@@ -6,8 +6,6 @@ $logs = Join-Path $appHome 'logs'
 $stateFile = Join-Path $config 'processes.json'
 $tokenFile = Join-Path $config 'market-intel-token.txt'
 $dataKeyFile = Join-Path $config 'market-intel-data-key.bin'
-$databaseReadyFile = Join-Path $config 'database-ready-v1.ok'
-$marketIntelMigrationFile = Join-Path $config 'market-intel-migration-v2.ok'
 $started = [Collections.Generic.List[object]]::new()
 
 Add-Type -AssemblyName System.Security
@@ -65,7 +63,7 @@ $mysqlClient = Join-Path $runtime 'mysql\bin\mysql.exe'
 $redis = Join-Path $runtime 'redis\redis-server.exe'
 $python = Join-Path $runtime 'python\python.exe'
 $java = Join-Path $runtime 'jre\bin\java.exe'
-@($mysql,$mysqlClient,$redis,$python,$java,(Join-Path $appHome 'app\oms.jar'),(Join-Path $appHome 'intel-sidecar\app.py'),(Join-Path $appHome 'sql\ensure-login-config.sql')) | ForEach-Object { Require-File $_ }
+@($mysql,$mysqlClient,$redis,$python,$java,(Join-Path $appHome 'app\oms.jar'),(Join-Path $appHome 'intel-sidecar\app.py'),(Join-Path $appHome 'sql\base-schema.sql')) | ForEach-Object { Require-File $_ }
 if ($appHome -match '[^\x00-\x7F]') {
     throw "Please unpack to an ASCII path such as D:\QihangOMS. MySQL cannot start from: $appHome"
 }
@@ -147,19 +145,17 @@ if ($needsBaseSchema) {
         if ($LASTEXITCODE -ne 0) { throw 'database local password setup failed' }
     }
 }
-[IO.File]::WriteAllText($databaseReadyFile, 'ok', [Text.Encoding]::ASCII)
-$marketIntelSchemaPath = (Join-Path $appHome 'sql\market_intel.sql').Replace('\','/')
-& $mysqlClient @rootArgs '--default-character-set=utf8mb4' 'qihang-oms' '-e' "source $marketIntelSchemaPath"
-if ($LASTEXITCODE -ne 0) { throw 'market intelligence schema initialization failed' }
-if (-not [IO.File]::Exists($marketIntelMigrationFile)) {
-    $migrationPath = (Join-Path $appHome 'sql\market_intel_migration.sql').Replace('\','/')
-    & $mysqlClient @rootArgs '--default-character-set=utf8mb4' 'qihang-oms' '-e' "source $migrationPath"
-    if ($LASTEXITCODE -ne 0) { throw 'market intelligence migration failed' }
-    [IO.File]::WriteAllText($marketIntelMigrationFile, 'ok', [Text.Encoding]::ASCII)
+# Full sync: every *.sql in the sql folder except base-schema.sql (fresh-install
+# only, not idempotent) is sourced on every start, sorted by file name, and must
+# be idempotent. New features only need to drop an idempotent SQL file into the
+# package sql folder (Build-Package.ps1 copies docs\sql\*.sql automatically).
+$sqlFiles = Get-ChildItem -LiteralPath (Join-Path $appHome 'sql') -Filter '*.sql' | Sort-Object Name
+foreach ($sqlFile in $sqlFiles) {
+    if ($sqlFile.Name -eq 'base-schema.sql') { continue }
+    $sourcePath = $sqlFile.FullName.Replace('\','/')
+    & $mysqlClient @rootArgs '--default-character-set=utf8mb4' 'qihang-oms' '-e' "source $sourcePath"
+    if ($LASTEXITCODE -ne 0) { throw ("sql sync failed: " + $sqlFile.Name) }
 }
-$ensureLoginPath = (Join-Path $appHome 'sql\ensure-login-config.sql').Replace('\','/')
-& $mysqlClient @rootArgs '--default-character-set=utf8mb4' 'qihang-oms' '-e' "source $ensureLoginPath"
-if ($LASTEXITCODE -ne 0) { throw 'login config initialization failed' }
 
 
 
