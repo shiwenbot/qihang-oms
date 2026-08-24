@@ -228,7 +228,7 @@ location /prod-api/ {
 #### 7 访问web
 + 访问地址：`http://localhost`
 + 登录名：`admin`
-+ 登录密码：`Andy@2025`
++ 登录密码：`admin`
 
 ---
 
