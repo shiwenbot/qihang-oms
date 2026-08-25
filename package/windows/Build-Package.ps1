@@ -12,7 +12,7 @@ tree, so any machine produces the same package content from the same source:
      + QihangOMS.exe desktop host (csc, inbox .NET Framework)
   6. write BUILD-INFO.txt (commit, tool versions, sha256 of key files)
   7. gate: Test-FreshDatabase.ps1 simulates a fresh install from the same sql set
-  8. zip + self-extracting QihangOMS-Setup-*.exe
+  8. self-extracting QihangOMS-Setup-*.exe (zip is temp, not shipped)
 
 Usage (from repo root, on the build machine):
   powershell -ExecutionPolicy Bypass -File package\windows\Build-Package.ps1
@@ -218,17 +218,17 @@ if ($SkipTest) {
     if ($LASTEXITCODE -ne 0) { throw 'fresh-install gate FAILED - package not produced' }
 }
 
-# ---------- 8) zip + setup exe ----------
-Step '8/8 zip and setup exe'
+# ---------- 8) setup exe only ----------
+Step '8/8 setup exe'
 $stamp = $buildTime.ToString('yyyyMMdd-HHmm') + '-' + $revision
-$zipName = 'QihangOMS-' + $stamp + '.zip'
-$zipPath = Join-Path $OutDir $zipName
+$zipPath = Join-Path $OutDir ('_payload-' + $stamp + '.zip')
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -Path $staging -DestinationPath $zipPath -Force
 $setupPath = Join-Path $OutDir ('QihangOMS-Setup-' + $stamp + '.exe')
 New-SfxInstaller -StubPath $stubPath -ZipPath $zipPath -OutPath $setupPath
 Remove-Item -LiteralPath $stubPath -Force
+Remove-Item -LiteralPath $zipPath -Force
+if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 Write-Host ''
-Write-Host ('release zip:   ' + $zipPath) -ForegroundColor Green
-Write-Host ('release setup: ' + $setupPath) -ForegroundColor Green
-Write-Host 'install: run the Setup exe (upgrade keeps runtime\mysql\data and config); zip overlay still works'
+Write-Host ('release: ' + $setupPath) -ForegroundColor Green
+Write-Host 'install: run the Setup exe; upgrade over the old folder keeps runtime\mysql\data and config'
