@@ -35,8 +35,8 @@ public class AiImageController extends BaseController {
      * @param prompt  提示词（必填）
      * @param size    尺寸 宽x高，默认 1024x1024
      * @param model   模型档位：auto/standard/2k/4k，默认 auto
-     * @param files   本地参考图（可选，最多4张，与 refUrls 二选一，优先 files）
-     * @param refUrls 网络参考图URL（可选，JSON数组字符串，最多4个）
+     * @param files   本地参考图（可选；可与 refUrls 混用，混用时后端统一归一为文件型）
+     * @param refUrls 参考图地址（可选，JSON数组字符串；支持 http(s):// 外链与 /ai-images/ 本地路径，总数最多4张）
      */
     @PostMapping("/generate")
     public AjaxResult generate(@RequestParam String prompt,
@@ -61,8 +61,9 @@ public class AiImageController extends BaseController {
                 }
             }
             List<String> urlList = parseRefUrls(refUrls);
-            Long taskId = aiImageService.submit(getUsername(), prompt, size, model, urlList, refFiles);
-            aiImageService.execute(taskId, prompt, size, model, urlList, refFiles);
+            AiImageService.RefInput refs = aiImageService.normalizeRefs(urlList, refFiles);
+            Long taskId = aiImageService.submit(getUsername(), prompt, size, model, refs.remoteUrls(), refs.files());
+            aiImageService.execute(taskId, prompt, size, model, refs.remoteUrls(), refs.files());
             return success(Map.of("taskId", taskId));
         } catch (IllegalArgumentException e) {
             return error(e.getMessage());
@@ -127,6 +128,14 @@ public class AiImageController extends BaseController {
         }
         String json = refUrls.trim();
         if (json.startsWith("[") && json.endsWith("]")) {
+            try {
+                List<String> list = com.alibaba.fastjson2.JSON.parseArray(json, String.class);
+                if (list != null) {
+                    return list.stream().filter(s -> s != null && !s.isBlank()).toList();
+                }
+            } catch (Exception ignored) {
+                // 非标准 JSON，退回朴素逗号分隔
+            }
             String inner = json.substring(1, json.length() - 1);
             if (inner.isBlank()) {
                 return List.of();
