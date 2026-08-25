@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -133,6 +134,7 @@ internal static class Scripts
 internal sealed class HostForm : Form
 {
     readonly Panel _bar;
+    readonly Panel _content;
     readonly Label _status;
     readonly LinkLabel _url;
     readonly Button _open;
@@ -147,7 +149,9 @@ internal sealed class HostForm : Form
     bool _exiting;
     bool _closeConfirmed;
     bool _webReady;
-    bool _logPinned;
+    bool _navigated;
+    bool _logPinned = true;
+    Task _prepareWeb;
 
     public HostForm()
     {
@@ -166,7 +170,6 @@ internal sealed class HostForm : Form
         _bar.Dock = DockStyle.Top;
         _bar.Height = 44;
         _bar.BackColor = Color.FromArgb(248, 250, 252);
-        _bar.Padding = new Padding(12, 8, 12, 8);
         Controls.Add(_bar);
 
         _status = new Label();
@@ -180,7 +183,6 @@ internal sealed class HostForm : Form
         _url = new LinkLabel();
         _url.AutoSize = false;
         _url.SetBounds(180, 12, 420, 22);
-        _url.Text = "";
         _url.LinkClicked += delegate { OpenBrowser(); };
         _bar.Controls.Add(_url);
 
@@ -213,11 +215,18 @@ internal sealed class HostForm : Form
         _log.Multiline = true;
         _log.ReadOnly = true;
         _log.ScrollBars = ScrollBars.Vertical;
-        _log.Dock = DockStyle.Fill;
+        _log.Dock = DockStyle.Bottom;
+        _log.Height = 160;
         _log.Font = new Font("Consolas", 9f);
         _log.BackColor = Color.FromArgb(248, 250, 252);
-        _log.BorderStyle = BorderStyle.None;
+        _log.BorderStyle = BorderStyle.FixedSingle;
         Controls.Add(_log);
+
+        _content = new Panel();
+        _content.Dock = DockStyle.Fill;
+        _content.BackColor = Color.White;
+        Controls.Add(_content);
+        _content.BringToFront();
 
         _missing = new Panel();
         _missing.Dock = DockStyle.Fill;
@@ -225,27 +234,27 @@ internal sealed class HostForm : Form
         _missing.BackColor = Color.White;
         _missingText = new Label();
         _missingText.AutoSize = false;
-        _missingText.SetBounds(40, 40, 700, 80);
-        _missingText.Text = "本机缺少 Microsoft Edge WebView2 运行时，无法在窗口内打开系统。";
+        _missingText.Dock = DockStyle.Top;
+        _missingText.Height = 90;
+        _missingText.Padding = new Padding(24, 24, 24, 8);
         _missing.Controls.Add(_missingText);
         var installRt = new Button();
-        installRt.SetBounds(40, 130, 180, 32);
+        installRt.SetBounds(24, 110, 180, 32);
         installRt.Text = "安装 WebView2 运行时";
         installRt.Click += delegate { OpenExternal(Program.WebView2RuntimeUrl); };
         _missing.Controls.Add(installRt);
         var useBrowser = new Button();
-        useBrowser.SetBounds(232, 130, 140, 32);
+        useBrowser.SetBounds(216, 110, 140, 32);
         useBrowser.Text = "改用浏览器打开";
         useBrowser.Click += delegate { OpenBrowser(); };
         _missing.Controls.Add(useBrowser);
-        Controls.Add(_missing);
+        _content.Controls.Add(_missing);
 
         _web = new WebView2();
         _web.Dock = DockStyle.Fill;
-        _web.Visible = false;
         _web.CreationProperties = new CoreWebView2CreationProperties();
         _web.CreationProperties.UserDataFolder = Path.Combine(Scripts.AppHome(), "config", "webview2");
-        Controls.Add(_web);
+        _content.Controls.Add(_web);
         _web.BringToFront();
 
         _tray = new NotifyIcon();
@@ -260,8 +269,47 @@ internal sealed class HostForm : Form
         _tray.ContextMenu = menu;
         _tray.DoubleClick += delegate { Restore(); };
 
-        Load += delegate { BeginStart(); };
+        Load += OnLoad;
         FormClosing += OnFormClosing;
+    }
+
+    void OnLoad(object sender, EventArgs e)
+    {
+        _prepareWeb = PrepareWebView();
+        BeginStart();
+    }
+
+    async Task PrepareWebView()
+    {
+        try
+        {
+            string ver = null;
+            try { ver = CoreWebView2Environment.GetAvailableBrowserVersionString(); }
+            catch (WebView2RuntimeNotFoundException) { ver = null; }
+            if (string.IsNullOrEmpty(ver))
+            {
+                ShowMissingRuntime("本机未安装 Microsoft Edge WebView2 运行时。");
+                return;
+            }
+            await _web.EnsureCoreWebView2Async();
+            _web.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            _web.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
+            _web.CoreWebView2.NewWindowRequested -= OnNewWindow;
+            _web.CoreWebView2.NewWindowRequested += OnNewWindow;
+            _web.CoreWebView2.NavigationCompleted -= OnNavigated;
+            _web.CoreWebView2.NavigationCompleted += OnNavigated;
+            _webReady = true;
+            Append("窗口内浏览器已就绪。");
+        }
+        catch (WebView2RuntimeNotFoundException)
+        {
+            ShowMissingRuntime("本机未安装 Microsoft Edge WebView2 运行时。");
+        }
+        catch (Exception ex)
+        {
+            ShowMissingRuntime("无法初始化窗口内浏览器：" + ex.Message);
+        }
     }
 
     void BeginStart()
@@ -282,17 +330,7 @@ internal sealed class HostForm : Form
             _startProcess = null;
             if (_exiting) return;
             if (p.ExitCode == 0)
-            {
-                Ui(delegate
-                {
-                    _status.Text = "运行中";
-                    _status.ForeColor = Color.FromArgb(22, 130, 60);
-                    _url.Text = _omsUrl;
-                    _open.Enabled = true;
-                    Append("服务已启动，正在窗口内打开系统…");
-                    ShowApp();
-                });
-            }
+                Ui(delegate { MarkRunning(); NavigateApp(); });
             else
             {
                 Ui(delegate
@@ -315,59 +353,48 @@ internal sealed class HostForm : Form
         }
     }
 
-    async void ShowApp()
+    void MarkRunning()
     {
+        _status.Text = "运行中";
+        _status.ForeColor = Color.FromArgb(22, 130, 60);
+        _url.Text = _omsUrl;
+        _open.Enabled = true;
+    }
+
+    async void NavigateApp()
+    {
+        if (_navigated) return;
         try
         {
-            string ver = null;
-            try { ver = CoreWebView2Environment.GetAvailableBrowserVersionString(); }
-            catch (WebView2RuntimeNotFoundException) { ver = null; }
-            if (string.IsNullOrEmpty(ver))
-            {
-                ShowMissingRuntime("本机未安装 Microsoft Edge WebView2 运行时。");
-                return;
-            }
-            await _web.EnsureCoreWebView2Async();
-            _web.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            _web.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
-            _web.CoreWebView2.NewWindowRequested -= OnNewWindow;
-            _web.CoreWebView2.NewWindowRequested += OnNewWindow;
-            _web.CoreWebView2.Navigate(_omsUrl);
-            _webReady = true;
-            _web.Visible = true;
-            _missing.Visible = false;
-            if (!_logPinned)
-            {
-                _log.Visible = false;
-            }
-            else
-            {
-                _log.Dock = DockStyle.Bottom;
-                _log.Height = 160;
-            }
-            _web.BringToFront();
+            if (_prepareWeb != null) await _prepareWeb;
         }
-        catch (WebView2RuntimeNotFoundException)
+        catch { }
+        if (!_webReady || _web.CoreWebView2 == null)
         {
-            ShowMissingRuntime("本机未安装 Microsoft Edge WebView2 运行时。");
+            _open.Enabled = true;
+            Append("窗口内打开失败，请点右上角“浏览器打开”。");
+            return;
         }
-        catch (Exception ex)
-        {
-            ShowMissingRuntime("无法初始化窗口内浏览器：" + ex.Message);
-        }
+        _navigated = true;
+        Append("正在窗口内打开 " + _omsUrl);
+        CollapseLog();
+        _web.BringToFront();
+        _web.CoreWebView2.Navigate(_omsUrl);
+    }
+
+    void OnNavigated(object sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (e.IsSuccess) Append("界面已加载。");
+        else Append("页面加载失败（" + e.WebErrorStatus + "），可点“浏览器打开”。");
     }
 
     void ShowMissingRuntime(string message)
     {
+        if (InvokeRequired) { BeginInvoke(new Action(delegate { ShowMissingRuntime(message); })); return; }
         _missingText.Text = message + Environment.NewLine + Environment.NewLine
             + "可安装 WebView2 后重新打开本程序，或点“改用浏览器打开”。";
         _missing.Visible = true;
         _missing.BringToFront();
-        _web.Visible = false;
-        _log.Visible = true;
-        _log.Dock = DockStyle.Bottom;
-        _log.Height = 180;
         _open.Enabled = true;
         Append(message);
     }
@@ -398,17 +425,15 @@ internal sealed class HostForm : Form
     void ToggleLog()
     {
         _logPinned = !_logPinned;
-        if (_logPinned)
-        {
-            _log.Visible = true;
-            _log.Dock = _webReady ? DockStyle.Bottom : DockStyle.Fill;
-            if (_webReady) _log.Height = 160;
-            _log.BringToFront();
-        }
-        else if (_webReady)
-        {
-            _log.Visible = false;
-        }
+        _log.Visible = _logPinned;
+        _log.Height = _logPinned ? 160 : 0;
+    }
+
+    void CollapseLog()
+    {
+        _logPinned = false;
+        _log.Visible = false;
+        _log.Height = 0;
     }
 
     void OnFormClosing(object sender, FormClosingEventArgs e)
@@ -487,10 +512,17 @@ internal sealed class HostForm : Form
         if (string.IsNullOrEmpty(line)) return;
         string url = ExtractUrl(line);
         if (url != null) _omsUrl = url;
+        bool ready = line.IndexOf("Started:", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("already running at", StringComparison.OrdinalIgnoreCase) >= 0;
         Ui(delegate
         {
             if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
             _log.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + line);
+            if (ready)
+            {
+                MarkRunning();
+                NavigateApp();
+            }
         });
     }
 
