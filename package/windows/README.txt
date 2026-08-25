@@ -1,9 +1,7 @@
 启航电商 OMS Windows 桌面版
 
-推荐安装：双击 QihangOMS-Setup-*.exe，安装到纯英文路径（例如 D:\QihangOMS）。
-Windows 可能提示“未知发行者”，点“更多信息”再“仍要运行”。升级覆盖程序文件，不会删除 runtime\mysql\data（数据库）和 config。
-
-也可以解压 zip 覆盖到原目录（不要删除 runtime\）。不要放桌面、微信下载目录或带中文的文件夹。
+双击 QihangOMS-Setup-*.exe，安装到纯英文路径（例如 D:\QihangOMS）。
+Windows 可能提示“未知发行者”，点“更多信息”再“仍要运行”。升级覆盖程序文件，不会删除 runtime\mysql\data（数据库）和 config。不要放桌面、微信下载目录或带中文的文件夹。
 
 打开桌面“启航电商 OMS”（或安装目录 QihangOMS.exe）即启动全部服务，并在窗口内打开系统；关闭窗口即停止全部服务。
 首次启动会在本目录创建全新的本机数据库，请等窗口显示“运行中”后再登录。
