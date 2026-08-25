@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -41,6 +42,90 @@ public class AiImageService {
 
     public boolean isConfigured() {
         return lumioClient.isConfigured();
+    }
+
+    /** 归一化后的参考图输入：remoteUrls 直传远端（reference_images），files 走 /images/edits */
+    public record RefInput(List<String> remoteUrls, List<LumioImageClient.RefFile> files) {
+    }
+
+    /**
+     * 归一化参考图输入：
+     * 1. "/ai-images/" 开头 -> 读本地存储目录，转为文件型参考
+     * 2. 存在任意文件型参考（上传文件或本地路径）时，http(s) 参考由服务端下载转为文件型，统一走 /images/edits（支持混用）
+     * 3. 仅 http(s) 参考 -> 保持 URL 直传（远端按 reference_images 拉取，不占服务端带宽）
+     * 校验失败抛 IllegalArgumentException，由 Controller 直接回给用户。
+     */
+    public RefInput normalizeRefs(List<String> refUrls, List<LumioImageClient.RefFile> uploadedFiles) {
+        List<LumioImageClient.RefFile> files = new ArrayList<>(uploadedFiles == null ? List.of() : uploadedFiles);
+        List<String> localPaths = new ArrayList<>();
+        List<String> remoteUrls = new ArrayList<>();
+        for (String u : refUrls == null ? List.<String>of() : refUrls) {
+            String url = u == null ? "" : u.trim();
+            if (url.isEmpty()) {
+                continue;
+            }
+            if (url.startsWith("/ai-images/")) {
+                localPaths.add(url);
+            } else if (url.toLowerCase().startsWith("http://") || url.toLowerCase().startsWith("https://")) {
+                remoteUrls.add(url);
+            } else {
+                throw new IllegalArgumentException("参考图地址必须为 http(s):// 或 /ai-images/ 开头");
+            }
+        }
+        localPaths.forEach(p -> files.add(readLocalRef(p)));
+        if (!files.isEmpty()) {
+            // 存在任意文件型参考（上传或本地路径），远程 URL 一并由服务端下载转文件，统一走 /images/edits
+            for (String url : remoteUrls) {
+                files.add(downloadRef(url));
+            }
+            return new RefInput(List.of(), files);
+        }
+        // 仅远程 URL：保持直传（远端按 reference_images 拉取，不占服务端带宽）
+        return new RefInput(remoteUrls, files);
+    }
+
+    /** 读取本地存储的结果图作为参考图（路径严格白名单，防目录穿越） */
+    private LumioImageClient.RefFile readLocalRef(String url) {
+        String name = url.substring("/ai-images/".length());
+        if (name.isBlank() || !name.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("参考图路径非法：" + url);
+        }
+        Path file = Paths.get(LOCAL_STORE_DIR, name);
+        if (!Files.isRegularFile(file)) {
+            throw new IllegalArgumentException("参考图文件不存在：" + name);
+        }
+        byte[] data;
+        try {
+            data = Files.readAllBytes(file);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("读取参考图失败：" + name);
+        }
+        return newRefFile(name, data);
+    }
+
+    /** 服务端下载远程参考图（七牛外链等），转为文件型 */
+    private LumioImageClient.RefFile downloadRef(String url) {
+        byte[] data;
+        try {
+            data = lumioClient.download(url);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("参考图下载失败：" + e.getMessage());
+        }
+        String name = url.substring(url.lastIndexOf('/') + 1);
+        if (name.isBlank() || !name.contains(".")) {
+            name = "ref_" + System.currentTimeMillis() + ".png";
+        }
+        return newRefFile(name, data);
+    }
+
+    /** 用魔数嗅探判定类型（复用 sniffImageExt），构造文件型参考 */
+    private LumioImageClient.RefFile newRefFile(String name, byte[] data) {
+        String ext = sniffImageExt(data);
+        String type = switch (ext) {
+            case "jpg" -> "image/jpeg";
+            default -> "image/" + ext; // png / webp
+        };
+        return new LumioImageClient.RefFile(name, type, data);
     }
 
     /**

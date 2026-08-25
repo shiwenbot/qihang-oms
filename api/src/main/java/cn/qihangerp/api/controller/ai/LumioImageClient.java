@@ -207,7 +207,7 @@ public class LumioImageClient {
         }
     }
 
-    private byte[] download(String url) {
+    public byte[] download(String url) {
         Request request = new Request.Builder().url(url).build();
         try (Response response = http.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
