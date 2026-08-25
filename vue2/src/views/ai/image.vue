@@ -102,6 +102,7 @@
               <div class="result-actions">
                 <el-button size="small" type="primary" plain icon="el-icon-download" @click="downloadImage(activeTask)">下载</el-button>
                 <el-button size="small" plain icon="el-icon-document-copy" @click="copyText(resolveUrl(activeTask.resultUrl))">复制链接</el-button>
+                <el-button size="small" plain icon="el-icon-picture-outline" @click="useAsRef(activeTask)">作为参考图</el-button>
               </div>
             </template>
             <div v-else-if="activeTask.status === 3" class="result-error">
@@ -212,6 +213,23 @@ export default {
       if (!url || /^https?:\/\//.test(url)) return url
       return (process.env.VUE_APP_BASE_API || '') + url
     },
+    // 把当前结果图加入参考图区；提交时经 refUrls 通道（后端已支持 /ai-images/ 相对路径与七牛外链）
+    useAsRef(task) {
+      if (!task || task.status !== 2 || !task.resultUrl) {
+        return
+      }
+      if (this.fileList.length >= 4) {
+        this.$message.warning('参考图最多4张，请先移除现有参考图')
+        return
+      }
+      if (this.fileList.some(f => f.refUrl === task.resultUrl)) {
+        this.$message.info('该图已在参考图中')
+        return
+      }
+      const name = task.resultUrl.substring(task.resultUrl.lastIndexOf('/') + 1) || 'ref.png'
+      this.fileList.push({ name, url: this.resolveUrl(task.resultUrl), refUrl: task.resultUrl })
+      this.$message.success('已加入参考图')
+    },
     handleFileChange(file, fileList) {
       const allow = ['image/png', 'image/jpeg', 'image/webp']
       if (file.raw && !allow.includes(file.raw.type)) {
@@ -238,9 +256,17 @@ export default {
       fd.append('prompt', this.form.prompt.trim())
       fd.append('size', this.form.size)
       fd.append('model', this.form.model)
+      const refUrls = []
       this.fileList.forEach(f => {
-        if (f.raw) fd.append('files', f.raw)
+        if (f.raw) {
+          fd.append('files', f.raw)
+        } else if (f.refUrl) {
+          refUrls.push(f.refUrl)
+        }
       })
+      if (refUrls.length) {
+        fd.append('refUrls', JSON.stringify(refUrls))
+      }
       this.generating = true
       generateImage(fd).then(res => {
         if (res.code !== 200) {
