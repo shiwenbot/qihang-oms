@@ -9,20 +9,21 @@ tree, so any machine produces the same package content from the same source:
   3. build frontend (npm ci if needed + npm run build:prod)
   4. embed frontend dist into the jar (api resources static) + mvn clean package
   5. stage the package: template binaries + repo scripts + generated sql set
+     + QihangOMS.exe desktop host (csc, inbox .NET Framework)
   6. write BUILD-INFO.txt (commit, tool versions, sha256 of key files)
   7. gate: Test-FreshDatabase.ps1 simulates a fresh install from the same sql set
-  8. zip
+  8. zip + self-extracting QihangOMS-Setup-*.exe
 
 Usage (from repo root, on the build machine):
   powershell -ExecutionPolicy Bypass -File package\windows\Build-Package.ps1
-  powershell -ExecutionPolicy Bypass -File package\windows\Build-Package.ps1 -TemplateDir D:\QihangOMS-pkg\QihangOMS
+  powershell -ExecutionPolicy Bypass -File package\windows\Build-Package.ps1 -TemplateDir D:\DianShang\runtime-template\QihangOMS
 
 The template folder only contributes third-party binaries under runtime\
 (mysql, redis, jre, python, node). Scripts, jar, sql and sidecar sources are
 always taken from the repo, never from the template.
 #>
 param(
-    [string]$TemplateDir = 'D:\QihangOMS-pkg\QihangOMS',
+    [string]$TemplateDir = 'D:\DianShang\runtime-template\QihangOMS',
     [string]$OutDir,
     [switch]$SkipTest
 )
@@ -41,6 +42,24 @@ function Clear-Directory([string]$dir) {
     if (-not (Test-Path -LiteralPath $dir)) { return }
     Get-ChildItem -LiteralPath $dir -Force | Remove-Item -Recurse -Force
 }
+function New-SfxInstaller([string]$StubPath, [string]$ZipPath, [string]$OutPath) {
+    $tmp = $OutPath + '.tmp'
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force }
+    $out = [IO.File]::Create($tmp)
+    try {
+        $stub = [IO.File]::OpenRead($StubPath)
+        try { $stub.CopyTo($out) } finally { $stub.Dispose() }
+        $zip = [IO.File]::OpenRead($ZipPath)
+        $zipLen = $zip.Length
+        try { $zip.CopyTo($out) } finally { $zip.Dispose() }
+        $bw = New-Object IO.BinaryWriter $out
+        $bw.Write([int64]$zipLen)
+        $bw.Write([Text.Encoding]::ASCII.GetBytes('QHOMSFX1'))
+        $bw.Flush()
+    } finally { $out.Dispose() }
+    if (Test-Path -LiteralPath $OutPath) { Remove-Item -LiteralPath $OutPath -Force }
+    Move-Item -LiteralPath $tmp -Destination $OutPath
+}
 
 # ---------- 1) git identity ----------
 Step '1/8 git revision'
@@ -57,6 +76,9 @@ Step '2/8 toolchain and template check'
 Require-Tool node
 Require-Tool npm
 Require-Tool mvn
+Require-Tool dotnet
+$csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+if (-not [IO.File]::Exists($csc)) { throw "missing csc: $csc (install .NET Framework 4.x Developer Pack / Windows has it inbox)" }
 foreach ($p in @(
     (Join-Path $TemplateDir 'runtime\mysql\bin\mysqld.exe'),
     (Join-Path $TemplateDir 'runtime\mysql\bin\mysql.exe'),
@@ -118,6 +140,26 @@ $pkgStaging = Join-Path $staging 'package\windows'
 [IO.Directory]::CreateDirectory($pkgStaging) | Out-Null
 Clear-Directory $pkgStaging
 Copy-Item -Path (Join-Path $repo 'package\windows\*') -Destination $pkgStaging -Recurse -Force
+# Desktop host + Start/Stop helpers at package root; stub is joined with the zip in step 8
+$stubPath = Join-Path $OutDir 'QihangOMS-SetupStub.exe'
+& (Join-Path $PSScriptRoot 'Compile-NativeExes.ps1') -LauncherOutDir $staging -StubOut $stubPath
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-oms.bat') -Destination (Join-Path $staging 'Start-OMS.bat') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stop-oms.bat') -Destination (Join-Path $staging 'Stop-OMS.bat') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.txt') -Destination (Join-Path $staging 'README.txt') -Force
+$startBatCn = ([char]0x542F).ToString() + ([char]0x52A8).ToString() + 'OMS.bat'
+$stopBatCn = ([char]0x505C).ToString() + ([char]0x6B62).ToString() + 'OMS.bat'
+$hostCn = ([char]0x542F).ToString() + ([char]0x822A).ToString() + 'OMS.exe'
+$startExeCn = ([char]0x542F).ToString() + ([char]0x52A8).ToString() + 'OMS.exe'
+$stopExeCn = ([char]0x505C).ToString() + ([char]0x6B62).ToString() + 'OMS.exe'
+$readmeCn = ([char]0x4F7F).ToString() + ([char]0x7528).ToString() + ([char]0x8BF4).ToString() + ([char]0x660E).ToString() + '.txt'
+Copy-Item -LiteralPath (Join-Path $staging 'Start-OMS.bat') -Destination (Join-Path $staging $startBatCn) -Force
+Copy-Item -LiteralPath (Join-Path $staging 'Stop-OMS.bat') -Destination (Join-Path $staging $stopBatCn) -Force
+Copy-Item -LiteralPath (Join-Path $staging 'QihangOMS.exe') -Destination (Join-Path $staging $hostCn) -Force
+Copy-Item -LiteralPath (Join-Path $staging 'Start-OMS.exe') -Destination (Join-Path $staging $startExeCn) -Force
+Copy-Item -LiteralPath (Join-Path $staging 'Stop-OMS.exe') -Destination (Join-Path $staging $stopExeCn) -Force
+Copy-Item -LiteralPath (Join-Path $staging 'README.txt') -Destination (Join-Path $staging $readmeCn) -Force
+$installerSrc = Join-Path $pkgStaging 'installer'
+if (Test-Path -LiteralPath $installerSrc) { Remove-Item -LiteralPath $installerSrc -Recurse -Force }
 # sql set: generated base schema + every docs\sql\*.sql (new features need no build changes)
 $sqlStaging = Join-Path $staging 'sql'
 [IO.Directory]::CreateDirectory($sqlStaging) | Out-Null
@@ -153,6 +195,11 @@ $info.Add('')
 $info.Add('sha256:')
 $hashedItems = @()
 $hashedItems += Get-Item -LiteralPath (Join-Path $staging 'app\oms.jar')
+$hashedItems += Get-Item -LiteralPath (Join-Path $staging 'QihangOMS.exe')
+$hashedItems += Get-Item -LiteralPath (Join-Path $staging 'WebView2Loader.dll')
+$hashedItems += Get-Item -LiteralPath (Join-Path $staging 'Microsoft.Web.WebView2.Core.dll')
+$hashedItems += Get-Item -LiteralPath (Join-Path $staging 'Start-OMS.exe')
+$hashedItems += Get-Item -LiteralPath (Join-Path $staging 'Stop-OMS.exe')
 $hashedItems += @(Get-ChildItem -LiteralPath $sqlStaging -Filter '*.sql')
 $hashedItems += @(Get-ChildItem -LiteralPath $pkgStaging -Filter '*.ps1')
 foreach ($item in $hashedItems) {
@@ -171,11 +218,17 @@ if ($SkipTest) {
     if ($LASTEXITCODE -ne 0) { throw 'fresh-install gate FAILED - package not produced' }
 }
 
-# ---------- 8) zip ----------
-Step '8/8 zip'
-$zipName = 'QihangOMS-' + $buildTime.ToString('yyyyMMdd-HHmm') + '-' + $revision + '.zip'
+# ---------- 8) zip + setup exe ----------
+Step '8/8 zip and setup exe'
+$stamp = $buildTime.ToString('yyyyMMdd-HHmm') + '-' + $revision
+$zipName = 'QihangOMS-' + $stamp + '.zip'
 $zipPath = Join-Path $OutDir $zipName
+if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -Path $staging -DestinationPath $zipPath -Force
+$setupPath = Join-Path $OutDir ('QihangOMS-Setup-' + $stamp + '.exe')
+New-SfxInstaller -StubPath $stubPath -ZipPath $zipPath -OutPath $setupPath
+Remove-Item -LiteralPath $stubPath -Force
 Write-Host ''
-Write-Host ('release: ' + $zipPath) -ForegroundColor Green
-Write-Host 'install: unzip over the old folder (keep runtime\), start via start-oms.bat; sql syncs fully on every start'
+Write-Host ('release zip:   ' + $zipPath) -ForegroundColor Green
+Write-Host ('release setup: ' + $setupPath) -ForegroundColor Green
+Write-Host 'install: run the Setup exe (upgrade keeps runtime\mysql\data and config); zip overlay still works'

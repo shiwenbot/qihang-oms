@@ -49,3 +49,5 @@ intel-sidecar/vendor/
 
 # 一键打包产物
 package/out/
+package/windows/installer/bin/
+package/windows/installer/obj/
