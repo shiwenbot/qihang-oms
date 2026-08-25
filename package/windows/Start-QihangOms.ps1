@@ -102,7 +102,7 @@ if ([IO.File]::Exists($stateFile)) {
     }
     if ($allOwned) {
         $runningUrl = "http://127.0.0.1:$runningOmsPort"
-        Start-Process $runningUrl
+        if (-not $env:QIHANGOMS_NO_BROWSER) { Start-Process $runningUrl }
         Write-Host "Qihang OMS is already running at $runningUrl"
         exit 0
     }
@@ -209,7 +209,7 @@ $omsEntry = Start-OwnedProcess 'oms' $java @(
 ) $omsPort
 $omsEntry.pid = Wait-ForPort $omsPort 90 $omsEntry.pid $omsEntry.executable
 Save-ProcessState
-Start-Process $omsUrl
+if (-not $env:QIHANGOMS_NO_BROWSER) { Start-Process $omsUrl }
 Write-Host "Started: $omsUrl  username: admin  password: admin"
 } catch {
     Write-Error $_
