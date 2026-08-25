@@ -14,7 +14,7 @@ description: 启航OMS 发版纪律与历史踩坑教训——打包必须走 Bu
 
 ## 纪律
 
-1. 发版/打包**只能**用 `package/windows/Build-Package.ps1`；禁止手工组装，禁止 `-SkipTest` 强行发版（门禁模拟的就是用户电脑全新首装）。
+1. 发版/打包**只能**用 `package/windows/Build-Package.ps1`；禁止手工组装，禁止 `-SkipTest` 强行发版（门禁模拟的就是用户电脑全新首装）。产物**只有** `package\out\QihangOMS-Setup-*.exe`，禁止再留 zip 或手工拷目录当发版物。
 2. 数据库变更唯一入口 `docs/sql/`（幂等范式见 `rule://sql-idempotency`）；禁止只改 `docs/qihang-oms.sql` 快照（老安装永不重导）；禁止往 `Start-QihangOms.ps1` 加单脚本特例。
-3. 用户安装约定：解压覆盖原目录、**绝不删 `runtime\`**、先停后启。
+3. 用户安装约定：双击 Setup.exe 装到纯英文路径（例如 `D:\QihangOMS`）；升级选同一目录覆盖程序文件，**绝不删 `runtime\`**（尤其 `runtime\mysql\data`）和 `config`；先停后启。打开桌面“启航电商 OMS”，关闭窗口即停服务。
 4. 改动发版链路前先读仓库根 `AGENTS.md` 的文件地图。
